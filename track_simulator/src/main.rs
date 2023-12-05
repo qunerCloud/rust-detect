@@ -5,6 +5,7 @@ use std::net::TcpListener;
 use std::io::prelude::*;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use rand::Rng;
 
 #[derive(Clone)]
 struct Point {
@@ -24,13 +25,20 @@ struct Rectangle {
 
 fn start_server(shared_rect: Arc<Mutex<Rectangle>>) {
     thread::spawn(move || {
-        let listener = TcpListener::bind("127.0.0.1:65535").unwrap(); // 更换端口号
+        let listener = TcpListener::bind("127.0.0.1:65535").unwrap();
         for stream in listener.incoming() {
             let mut stream = stream.unwrap();
 
             loop {
-                let rect = shared_rect.lock().unwrap(); // 定期获取最新数据
-                let data = format!("{},{},{},{}", rect.top_left.x, rect.top_left.y, rect.bottom_right.x, rect.bottom_right.y);
+                let rect = shared_rect.lock().unwrap();
+                // 修改这里来发送所有四个角点的坐标
+                let data = format!(
+                    "{},{},{},{},{},{},{},{}",
+                    rect.top_left.x, rect.top_left.y,
+                    rect.bottom_left.x, rect.bottom_left.y,
+                    rect.bottom_right.x, rect.bottom_right.y,
+                    rect.top_right.x, rect.top_right.y
+                );
                 if let Err(e) = stream.write(data.as_bytes()) {
                     eprintln!("Failed to send data: {}", e);
                     break;
@@ -39,27 +47,35 @@ fn start_server(shared_rect: Arc<Mutex<Rectangle>>) {
                     eprintln!("Failed to flush stream: {}", e);
                     break;
                 }
-                std::thread::sleep(std::time::Duration::from_millis(200)); // 发送间隔
+                std::thread::sleep(std::time::Duration::from_millis(200));
             }
         }
     });
 }
 
-
 impl Rectangle {
     fn update(&mut self) {
-        // 更新矩形位置的逻辑
-        self.top_left.x += self.velocity_x;
-        self.top_left.y += self.velocity_y;
+        let mut rng = rand::thread_rng();
 
-        self.bottom_left.x += self.velocity_x;
-        self.bottom_left.y += self.velocity_y;
+        // 根据矩形的运动方向和速度调整透视变换的参数
+        //let perspective_shift_x = 0.0;
+        //let perspective_shift_y = 0.0;
+        let perspective_shift_x = rng.gen_range(-1.0..1.0) * self.velocity_x.abs();
+        let perspective_shift_y = rng.gen_range(-1.0..1.0) * self.velocity_y.abs();
 
-        self.bottom_right.x += self.velocity_x;
-        self.bottom_right.y += self.velocity_y;
+        // 更新矩形位置的逻辑，同时加入透视变化
 
-        self.top_right.x += self.velocity_x;
-        self.top_right.y += self.velocity_y;
+        self.top_left.x += self.velocity_x + perspective_shift_x;
+        self.top_left.y += self.velocity_y + perspective_shift_y;
+
+        self.bottom_left.x += self.velocity_x - perspective_shift_x;
+        self.bottom_left.y += self.velocity_y - perspective_shift_y;
+
+        self.bottom_right.x += self.velocity_x - perspective_shift_x;
+        self.bottom_right.y += self.velocity_y - perspective_shift_y;
+
+        self.top_right.x += self.velocity_x + perspective_shift_x;
+        self.top_right.y += self.velocity_y + perspective_shift_y;
 
         // 检测边界并重新初始化位置
         if self.top_left.x > 1280.0 || self.top_left.y > 1080.0 ||
@@ -74,6 +90,7 @@ impl Rectangle {
         println!("Top Right: ({}, {})", self.top_right.x, self.top_right.y);
         println!("---------***---------");
     }
+
 
     fn reset_position(&mut self) {
         // 重置矩形的位置
